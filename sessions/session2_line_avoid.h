@@ -60,10 +60,14 @@ private:
     bool judgeLeft_ = false;          // 避障方向标志
     bool iscorrecting_ = false;       // 是否在回正中
     bool isAvoiding_ = false;         // 是否在避障中
+    bool isSlowing_ = false;          // 是否遇到减速带
     std::string avoidingClass_ = ""; // 正在避让的障碍物类型
     int noObstacleCount_ = 0;         // 连续未检测到障碍物的帧数
     int noObstacleThreshold_ = 5;     // 连续多少帧未检测到才认为障碍物消失
     float adjusted_center_ = 350.0;   // 动态调整的目标中心点
+    float time_extend_ = 1.0;          // 遇到减速带延长加速时间，避免看不减速带时正在上坡
+    int slow_flag_ = 0;              // 减速带状态标志,0-未遇到减速带,1-加速中,2-刚通过减速带
+    ros::Time last_time_;                 // 记录通过减速带的时间
     std::queue<float> correctAngle_;  // 回正角度队列
     std::unordered_map<int, float> left_x_, right_x_;
 

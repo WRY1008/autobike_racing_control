@@ -1,4 +1,4 @@
-#include "racing_control_test.h"
+#include "session4_wait_direction.h"
 #include <algorithm>
 #include <cmath>
 
@@ -75,8 +75,8 @@ void Session4WaitDirection::DirectionCallback(const std_msgs::String::ConstPtr& 
 }
 
 void Session4WaitDirection::ZebraCallback(const obstacle_detector::PerceptionTargets::ConstPtr& msg) {
-    // 遍历 obstacles 查找 zebra
-    for (const auto& target : msg->obstacles) {
+    // 遍历 targets 查找 zebra
+    for (const auto& target : msg->targets) {
         if (target.obj_class == "zebra") {
             // 检测到 zebra
             if (zebra_detected_.load() == 0) {
@@ -137,8 +137,8 @@ void Session4WaitDirection::Execute() {
             auto point_msg = point_queue_.top();
             lock.unlock();
             
-            if (!point_msg->lane_points.empty()) {
-                LineFollowing(point_msg->lane_points[0]);
+            if (!point_msg->targets.empty()) {
+                LineFollowing(point_msg->targets[0]);
             }
             
             lock.lock();

@@ -24,7 +24,9 @@ Session2LineAvoid::Session2LineAvoid() {
 
     nh_.getParam("max_angle_diff", max_angle_diff_);
 
-    adjusted_center_ = 350.0;  // 初始化默认中心点
+    adjusted_center_ = 355.0;  // 初始化默认中心点
+
+    time_extend_ = 1.0; // 默认延长时间为1秒
 
     ROS_INFO("Session2LineAvoid initialized!");
     ROS_INFO("Parameters: avoidBottom=%d, lineSpeed=%.2f, filter_window=%zu, max_angle_diff=%.1f",
@@ -74,10 +76,25 @@ void Session2LineAvoid::Execute() {
         lock.unlock();
 
         bool obstacleFound = false;
+        bool slowFound = false;
         obstacle_detector::PerceptionTarget currentTarget;
 
         if (!target_msg->obstacles.empty()) {
             for (auto& target : target_msg->obstacles) {
+                // 检测减速带
+                if (target.obj_class == "slow") {
+                    slowFound = true;
+                    
+                    // 状态转换：0 或 2 → 1（检测到减速带，开始加速）
+                    if (slow_flag_ != 1) {
+                        slow_flag_ = 1;
+                        isSlowing_ = true;
+                        last_time_ = ros::Time::now();  // 记录首次检测到的时间
+                        ROS_WARN("Speed bump detected! Increasing speed (flag: %d -> 1)", slow_flag_);
+                    }
+                }
+                
+                // 检测障碍物
                 if (target.obj_class == "b_obs") {
 
                     // 情况1: 未在避障中，检测到障碍物进入避障区域
@@ -107,6 +124,26 @@ void Session2LineAvoid::Execute() {
                 }
             }
         }
+        
+        // ========== 处理减速带状态转换 ==========
+        // 状态转换：1 → 2（看不到减速带了，继续保持加速）
+        if (slow_flag_ == 1 && !slowFound) {
+            slow_flag_ = 2;
+            last_time_ = ros::Time::now();  // 重新记录时间，开始延长加速计时
+            ROS_INFO("Speed bump disappeared, keeping increased speed (flag: 1 -> 2)");
+        }
+        
+        // 状态转换：2 → 0（延长时间到了，恢复正常速度）
+        if (slow_flag_ == 2) {
+            double elapsed = (ros::Time::now() - last_time_).toSec();
+            if (elapsed >= time_extend_) {
+                slow_flag_ = 0;
+                isSlowing_ = false;
+                ROS_INFO("Extended speed period ended (%.1fs), returning to normal speed (flag: 2 -> 0)", elapsed);
+            } else {
+                ROS_INFO_THROTTLE(0.5, "Keeping increased speed: %.2fs / %.1fs", elapsed, time_extend_);
+            }
+        }
 
         // ========== 第二步：处理避障状态转换 ==========
         if (isAvoiding_) {
@@ -120,7 +157,7 @@ void Session2LineAvoid::Execute() {
                     ROS_WARN("Obstacle disappeared! Starting correction...");
 
                     // 取消平滑分步回正，直接按当前偏移量一次性回正
-                    float current_offset = adjusted_center_ - 350.0;
+                    float current_offset = adjusted_center_ - 355.0;
                     if (std::abs(current_offset) > 1e-3) {
                         correctAngle_.push(-current_offset);
                     }
@@ -142,7 +179,9 @@ void Session2LineAvoid::Execute() {
         auto point_msg = point_queue_.top();
         lock.unlock();
         if (!point_msg->lane_points.empty()) {
-            LineFollowing(point_msg->lane_points[0]);
+            // 如果检测到减速带，增加速度；否则正常速度
+            float speed_adjustment = isSlowing_ ? 0.5 : 0.0;
+            LineFollowing(point_msg->lane_points[0], speed_adjustment);
         }
         lock.lock();
         point_queue_.pop();
@@ -171,18 +210,18 @@ void Session2LineAvoid::UpdateAdjustedCenter(const obstacle_detector::Perception
             float target_offset = 0.0;
             if (left_dist < right_dist) {
                 // 障碍物偏左，目标点向右偏移
-                target_offset = -35.0;  // 减小 x 值 = 向右
+                target_offset = -37.0;  // 减小 x 值 = 向右
                 judgeLeft_ = false;
                 ROS_WARN("Obstacle on LEFT, shifting target RIGHT (offset=%.1f)", target_offset);
             } else {
                 // 障碍物偏右，目标点向左偏移
-                target_offset = 35.0;   // 增大 x 值 = 向左
+                target_offset = 37.0;   // 增大 x 值 = 向左
                 judgeLeft_ = true;
                 ROS_WARN("Obstacle on RIGHT, shifting target LEFT (offset=%.1f)", target_offset);
             }
 
             // 取消平滑，直接使用目标中心
-            float target_center = 350.0 + target_offset;
+            float target_center = 355.0 + target_offset;
             adjusted_center_ = target_center;
 
             ROS_INFO("Updated adjusted_center_ to %.1f (no smoothing)", adjusted_center_);
@@ -204,7 +243,7 @@ void Session2LineAvoid::LineFollowing(const obstacle_detector::Target& point_msg
 
         if (correctAngle_.empty()) {
             iscorrecting_ = false;
-            adjusted_center_ = 350.0;  // 回正完成，重置中心点
+            adjusted_center_ = 355.0;  // 回正完成，重置中心点
             ROS_INFO("Correction complete!");
         }
     }
