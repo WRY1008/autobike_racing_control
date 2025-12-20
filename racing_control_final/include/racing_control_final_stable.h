@@ -114,7 +114,7 @@ private:
     bool isSlowing_ = false;
     std::string avoidingClass_ = "";
     int noObstacleCount_ = 0;
-    int noObstacleThreshold_ = 10;
+    int noObstacleThreshold_ = 20;
     float time_extend_ = 1.0; // 减速带延长加速时间
     int slow_flag_ = 0;
     ros::Time slow_last_time_;
@@ -189,6 +189,9 @@ private:
 
     // 看到黄桶所产生的巡线偏移量，默认40，记得改！
     float y_obs_offset_ = 30.0f;
+
+    // Session 5完成后的冲刺速度增量（在 lineSpeed_ 基础上增加）
+    float final_sprint_speed_ = 0.5f;
 
     // ==================== 辅助函数 ====================
     void LineFollowing(const obstacle_detector::Target& point_msg, float add_speed = 0.0);
