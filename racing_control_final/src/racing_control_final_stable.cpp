@@ -353,8 +353,8 @@ void RacingControlFinal::Execute() {
             break;
 
         case SessionState::SESSION_COMPLETE:
-            // 完成后持续巡线
-            ProcessLineAndObstacle();
+            // 完成后持续巡线，使用冲刺速度
+            ProcessLineAndObstacle(final_sprint_speed_);
             break;
     }
 }
@@ -615,7 +615,8 @@ void RacingControlFinal::ComputeTurnFromSignCenter(int dir, float sign_center_x,
     // 防止出现负值（只要系数 <= 1.0 且 offset_norm 在 [-1,1]，理论上不会为负）
     scale = std::max(0.05f, scale);
 
-    out_angle = base_angle * scale;
+    // 不再对角度做动态缩放，仅对时长做缩放
+    out_angle = base_angle;
     out_duration = base_duration * scale;
     out_scale = scale;
     if (dir > 0) {
