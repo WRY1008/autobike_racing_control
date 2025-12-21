@@ -777,6 +777,12 @@ void RacingControlFinal::UpdateAdjustedCenter(const obstacle_detector::Perceptio
             float right = point_msg->lane_points[0].points[0].point[2].x;
             float obstacle_center = (target.x1 + target.x2) / 2.0f;
 
+            //若同时检测到多个蓝色锥桶，则选择在赛道内的一个进行避障，即obstacle_center在left和right之间
+            if(obstacle_center < left || obstacle_center > right){
+                ROS_WARN("Obstacle center %.1f out of lane bounds (left=%.1f, right=%.1f), skipping adjustment", obstacle_center, left, right);
+                return;
+            }
+
             float left_dist = obstacle_center - left;
             float right_dist = right - obstacle_center;
 
