@@ -82,8 +82,8 @@ private:
     // ==================== 共用参数 ====================
     float lineSpeed_ = 1.8;
     float follow_p_ = 0.1;
-    int avoidBottom_ = 240;
-    float default_direction_ = 1.0f;  // 默认方向 (1: left)
+    int avoidBottom_ = 220;
+    float default_direction_ = -1.0f;  // 默认方向 (1: left)
 
     // ==================== 共用巡线状态 ====================
     float adjusted_center_ = 320.0;
@@ -135,13 +135,13 @@ private:
     std::atomic<int> direction_{0};
 
     // zebra 框底边 y2 达到该阈值后，开始收集指示牌中心点（用于可选的动态转向时长缩放）
-    float zebra_direction_start_bottom = 400.0f;
+    float zebra_direction_start_bottom = 350.0f;  // 降低阈值，更早开始收集
     bool collecting_sign_center_ = false;
 
     // Session 4: 指示牌检测框中心 (用于动态计算转向角/时间)
     float sign_center_sum_x_ = 0.0f;
     int sign_center_count_ = 0;
-    float latest_sign_center_x_ = 350.0f;
+    float latest_sign_center_x_ = 345.0f;
     bool latest_sign_center_valid_ = false;
 
     // 动态转向参数（仅用于“指示牌决定的第一次转向”）
@@ -154,22 +154,22 @@ private:
     bool enable_dynamic_turn_from_sign_ = true;
 
     // 系数：根据指示牌中心偏移缩放角度/时间（0.0~1.0 推荐）
-    float turn_center_coeff_ = 1.20f;
+    float turn_center_coeff_ = 0.5f;
 
     // ==================== Session 5: 转向相关 ====================
     // 第一次变道参数
     float turn_angle_left_ = 12.0;
     float turn_angle_right_ = 12.0;
-    float turn_duration_left_ = 4.8;
-    float turn_duration_right_ = 6.2;
+    float turn_duration_left_ = 5.0;
+    float turn_duration_right_ = 5.5;
     float correct_duration_left_ = 4.4;
-    float correct_duration_right_ = 5.2;
+    float correct_duration_right_ = 5.1;
     
     // 第二次变道参数（超车/回到车道）
     float turn2_angle_left_ = 14.0;
-    float turn2_angle_right_ = 12.0;
+    float turn2_angle_right_ = 14.0;
     float turn2_duration_left_ = 10.5;
-    float turn2_duration_right_ = 11.5;
+    float turn2_duration_right_ = 11.0;
     float correct2_duration_left_ = 8.5;
     float correct2_duration_right_ = 12.5;
 
@@ -186,10 +186,14 @@ private:
     int original_direction_ = 1;
 
     // 看到黄桶所产生的巡线偏移量，默认40，记得改！
-    float y_obs_offset_ = 30.0f;
+    float y_obs_offset_ = 40.0f;
 
     // Session 5完成后的冲刺速度增量（在 lineSpeed_ 基础上增加）
     float final_sprint_speed_ = 0.5f;
+
+    // ==================== 启动延迟控制 ====================
+    bool enable_startup_hold_ = false;   // 是否启用启动延迟
+    float startup_hold_duration_ = 31.0f; // 启动延迟时长（秒）
 
     // ==================== 辅助函数 ====================
     void LineFollowing(const obstacle_detector::Target& point_msg, float add_speed = 0.0);
