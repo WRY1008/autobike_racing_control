@@ -106,6 +106,12 @@ RacingControlFinal::RacingControlFinal() {
     nh_.getParam("y_obs_offset", y_obs_offset_);
     ROS_INFO("y_obs_offset: %.1f", y_obs_offset_);
 
+    // 读取启动延迟参数
+    nh_.getParam("enable_startup_hold", enable_startup_hold_);
+    nh_.getParam("startup_hold_duration", startup_hold_duration_);
+    ROS_INFO("Startup hold: enabled=%s, duration=%.1fs", 
+             enable_startup_hold_ ? "true" : "false", startup_hold_duration_);
+
     last_zebra_time_ = ros::Time::now();
 
     ROS_INFO("RacingControlFinal initialized!");
@@ -196,6 +202,10 @@ void RacingControlFinal::TargetCallback(const obstacle_detector::PerceptionTarge
             }
         }
 
+        // 周期性输出收集状态
+        ROS_INFO_THROTTLE(2.0, "Session 4: collecting_sign_center_=%s, sign_count=%d",
+                          collecting_sign_center_ ? "true" : "false", sign_center_count_);
+
         // 在停车后收集方向期间：同步记录 turn_left/turn_right 的检测框中心 x
         // 用于后续根据指示牌位置动态缩放转向角度/时间
         if (collecting_sign_center_) {
@@ -204,7 +214,10 @@ void RacingControlFinal::TargetCallback(const obstacle_detector::PerceptionTarge
             float best_left_cx = 320.0f;
             float best_right_cx = 320.0f;
 
+            int left_count = 0, right_count = 0;
             for (const auto& target : msg->obstacles) {
+                if (target.obj_class == "turn_left") left_count++;
+                if (target.obj_class == "turn_right") right_count++;
                 if (target.obj_class == "turn_left") {
                     if (target.score > best_left_score) {
                         best_left_score = target.score;
@@ -218,14 +231,19 @@ void RacingControlFinal::TargetCallback(const obstacle_detector::PerceptionTarge
                 }
             }
 
+            ROS_INFO_THROTTLE(1.0, "Session 4: Detected turn_left=%d, turn_right=%d", left_count, right_count);
+
             if (best_left_score >= 0.0f || best_right_score >= 0.0f) {
                 float chosen_cx = (best_left_score > best_right_score) ? best_left_cx : best_right_cx;
+                const char* chosen_type = (best_left_score > best_right_score) ? "turn_left" : "turn_right";
                 latest_sign_center_x_ = chosen_cx;
                 latest_sign_center_valid_ = true;
                 sign_center_sum_x_ += chosen_cx;
                 sign_center_count_++;
-                ROS_INFO_THROTTLE(1, "Session 4: sign center x=%.1f (samples=%d)",
-                                  latest_sign_center_x_, sign_center_count_);
+                ROS_INFO("Session 4: Collected %s center x=%.1f (total samples=%d)",
+                         chosen_type, latest_sign_center_x_, sign_center_count_);
+            } else {
+                ROS_INFO_THROTTLE(1.0, "Session 4: No turn sign detected in this frame");
             }
         }
     }
@@ -293,7 +311,7 @@ void RacingControlFinal::Execute() {
                 direction_.store(0);
                 sign_center_sum_x_ = 0.0f;
                 sign_center_count_ = 0;
-                latest_sign_center_x_ = 350.0f;
+                latest_sign_center_x_ = 345.0f;
                 latest_sign_center_valid_ = false;
                 use_dynamic_turn_from_sign_ = false;
                 stop_started_ = false;
@@ -316,7 +334,7 @@ void RacingControlFinal::Execute() {
                         ROS_WARN("Dynamic turn-from-sign disabled by param; using base turn params.");
                     } else {
                         const bool has_sign_center = (sign_center_count_ > 0) || latest_sign_center_valid_;
-                        float cx = 350.0f;
+                        float cx = 345.0f;
                         if (sign_center_count_ > 0) {
                             cx = sign_center_sum_x_ / static_cast<float>(sign_center_count_);
                         } else if (latest_sign_center_valid_) {
@@ -414,11 +432,13 @@ void RacingControlFinal::ExecuteSession2() {
                     }
 
                     if (isAvoiding_ && target.obj_class == avoidingClass_) {
-                        obstacleFound = true;
-                        currentTarget = target;
-                        noObstacleCount_ = 0;
-                        UpdateAdjustedCenter(currentTarget);
-                        break;
+                        if(target.y2 >= avoidBottom_) {
+                            obstacleFound = true;
+                            currentTarget = target;
+                            noObstacleCount_ = 0;
+                            UpdateAdjustedCenter(currentTarget);
+                            break;
+                        }
                     }
                 }
             }
@@ -515,16 +535,16 @@ void RacingControlFinal::ExecuteSession4() {
 }
 
 void RacingControlFinal::ComputeTurnFromSignCenter(int dir, float sign_center_x, float& out_angle, float& out_duration, float& out_scale) const {
-    // 相机宽度按 640 处理：由于摄像头是歪的，实际中心点为 350。
-    // 左侧范围 0-350（宽度350），右侧范围 350-640（宽度290）
-    constexpr float kImgCenterX = 350.0f;
-    constexpr float kLeftWidth = 350.0f;   // 左侧宽度
-    constexpr float kRightWidth = 290.0f;  // 右侧宽度
+    // 相机宽度按 640 处理：由于摄像头是歪的，实际中心点为 345。
+    // 左侧范围 0-345（宽度345），右侧范围 345-640（宽度295）
+    constexpr float kImgCenterX = 345.0f;
+    constexpr float kLeftWidth = 345.0f;   // 左侧宽度
+    constexpr float kRightWidth = 295.0f;  // 右侧宽度
 
     const float base_angle = (dir > 0) ? turn_angle_left_ : turn_angle_right_;
     const float base_duration = (dir > 0) ? turn_duration_left_ : turn_duration_right_;
 
-    // 归一化偏移：[-1, 1]，右侧为正。根据指示牌位置使用不同的归一化宽度
+    // 归一化偏移：[-1, 1], 右侧为正。根据指示牌位置使用不同的归一化宽度
     float offset_norm;
     if (sign_center_x >= kImgCenterX) {
         // 框在右侧，使用右侧宽度归一化
@@ -677,18 +697,17 @@ bool RacingControlFinal::WaitForYObsDisappear() {
     uint64_t last_counted_seq = 0;
     int miss_frames = 0;
     
-        // 简化逻辑：根据当前转向方向直接设置偏移
-        static float y_obs_offset_ = 40.0f; // 可在构造函数中读取参数
-        static float default_center_ = 320.0f;
+    // 简化逻辑：根据当前转向方向直接设置偏移
+    while (ros::ok()) {
         if (y_obs_detected_) {
             int dir = direction_.load(); // >0左转，<0右转
             float offset = (dir > 0) ? -y_obs_offset_ : y_obs_offset_;
-            adjusted_center_ = default_center_ + offset;
+            adjusted_center_ = 320.0f + offset;
             ROS_INFO_THROTTLE(1.0, "Y_OBS detected, direction=%d, set adjusted_center_=%.1f", dir, adjusted_center_);
         } else {
-            adjusted_center_ = default_center_;
+            adjusted_center_ = 320.0f;
         }
-    while (ros::ok()) {
+        
         ros::spinOnce();
 
         // flag=2 且当前未检测到 y_obs 的“等待确认消失”过程：需要降速
@@ -828,7 +847,7 @@ void RacingControlFinal::LineFollowing(const obstacle_detector::Target& point_ms
         double elapsed = (ros::Time::now() - recovery_start_time_).toSec();
         
         // 检查赛道是否已经恢复正常
-        if (right - left >= 155 && right - left <= 215) {
+        if (right - left >= 155 && right - left <= 250) {
             // 赛道宽度恢复正常，立即停止恢复
             is_recovering_ = false;
             abnormal_lane_count_ = 0;
@@ -855,7 +874,7 @@ void RacingControlFinal::LineFollowing(const obstacle_detector::Target& point_ms
     }
 
     // ========== 检测赛道宽度异常 ==========
-    if (right - left < 155 || right - left > 215) {
+    if (right - left < 155 || right - left > 250) {
         abnormal_lane_count_++;
         ROS_WARN("Lane width abnormal (%.1f), count: %d/%d", 
                  right - left, abnormal_lane_count_, abnormal_threshold_);
@@ -974,6 +993,34 @@ bool RacingControlFinal::IsAngleValid(float current_angle) {
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "racing_control_final");
+
+    // 读取启动延迟开关参数
+    ros::NodeHandle nh_temp;
+    bool enable_startup_hold = false;
+    float startup_hold_duration = 31.0f;
+    nh_temp.getParam("enable_startup_hold", enable_startup_hold);
+    nh_temp.getParam("startup_hold_duration", startup_hold_duration);
+
+    // 启动后先原地静止：持续发布停止指令，避免上一次残留指令导致误动作
+    if (enable_startup_hold) {
+        ros::Publisher stop_pub = nh_temp.advertise<ros_serial::to32>("/cmd_vel", 1);
+        ros_serial::to32 stop_msg;
+        stop_msg.speed = 0.0;
+        stop_msg.angle = 0.0;
+        stop_msg.run_flag = false;
+
+        ros::Rate stop_rate(30);
+        const ros::Time stop_start = ros::Time::now();
+        ROS_INFO("Startup hold: keep stop for %.1f seconds...", startup_hold_duration);
+        while (ros::ok() && (ros::Time::now() - stop_start).toSec() < startup_hold_duration) {
+            stop_pub.publish(stop_msg);
+            ros::spinOnce();
+            stop_rate.sleep();
+        }
+        ROS_INFO("Startup hold complete.");
+    } else {
+        ROS_INFO("Startup hold disabled, starting immediately...");
+    }
 
     RacingControlFinal controller;
     ros::Rate rate(30);
